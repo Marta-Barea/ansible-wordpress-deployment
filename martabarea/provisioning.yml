@@ -61,7 +61,8 @@
           - email: "{{ certbot_email }}"
             webroot: /var/www/martabarea/hdocs
             domains:
-              - "{{ nginx_server_name }}"
+              - martabarea.es
+              - www.martabarea.es
 
     - name: Renew SSL certificates
       cron:
@@ -122,8 +123,8 @@
             error_log: "/var/www/martabarea/logs/error.log"
             filename: "martabarea.es.conf"
             extra_parameters: |
-              ssl_certificate /etc/letsencrypt/live/{{ nginx_server_name }}/fullchain.pem;
-              ssl_certificate_key /etc/letsencrypt/live/{{ nginx_server_name }}/privkey.pem;
+              ssl_certificate /etc/letsencrypt/live/martabarea.es/fullchain.pem;
+              ssl_certificate_key /etc/letsencrypt/live/martabarea.es/privkey.pem;
 
               location / {
                 try_files $uri $uri/ /index.php$is_args$args;
