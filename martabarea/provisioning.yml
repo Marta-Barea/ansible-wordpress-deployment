@@ -1,0 +1,171 @@
+---
+- hosts: all
+  become: true
+
+  vars_files:
+    - vars.yml
+
+  tasks:
+    - name: Install ufw
+      apt:
+        name: ufw
+        state: present
+
+    - name: Configure ufw
+      ufw:
+        rule: "{{ item.rule }}"
+        port: "{{ item.port }}"
+        state: "{{ item.state }}"
+
+      with_items:
+        - { rule: "allow", port: "22023", state: "enabled", proto: "tcp" }
+        - { rule: "allow", port: "80", state: "enabled", proto: "tcp" }
+        - { rule: "allow", port: "443", state: "enabled", proto: "tcp" }
+        - { rule: "allow", port: "80", state: "enabled", proto: "udp" }
+        - { rule: "allow", port: "443", state: "enabled", proto: "udp" }
+
+    - name: Create a directory for Wordpress
+      file:
+        path: /var/www/martabarea/htdocs
+        state: directory
+
+    - name: Download WordPress
+      get_url:
+        url: "https://wordpress.org/latest.tar.gz"
+        dest: "/tmp/wordpress.tar.gz"
+
+    - name: Extract WordPress
+      unarchive:
+        src: "/tmp/wordpress.tar.gz"
+        dest: "/var/www/martabarea/htdocs"
+        remote_src: yes
+        extra_opts: [--strip-components=1]
+
+    - name: Set owner ships and permissions for WordPress
+      file:
+        path: /var/www/martabarea/htdocs
+        state: directory
+        owner: www-data
+        group: www-data
+        mode: "0755"
+        recurse: yes
+
+    - name: Install Certbot
+      include_role:
+        name: geerlingguy.certbot
+      vars:
+        certbot_admin_email: "{{ certbot_email }}"
+        certbot_create_if_missing: true
+        certbot_hsts: true
+        certbot_certs:
+          - email: "{{ certbot_email }}"
+            webroot: /var/www/martabarea/hdocs
+            domains:
+              - "{{ nginx_server_name }}"
+
+    - name: Renew SSL certificates
+      cron:
+        name: "Renew SSL certificates with Certbot"
+        job: "certbot -q renew && systemctl reload nginx"
+        minute: "0"
+        hour: "0"
+        day: "*"
+        month: "*"
+        weekday: "*"
+
+    - name: Install Nginx
+      include_role:
+        name: geerlingguy.nginx
+
+    - name: Create logs directory
+      file:
+        path: "/var/www/martabarea/logs/"
+        state: directory
+        owner: www-data
+        group: www-data
+        mode: "0755"
+
+    - name: Configure Nginx for HTTP
+      vars:
+        nginx_vhosts:
+          - server_name: "{{ nginx_server_name }}"
+            server_name_redirect: "{{ server_name_redirect }}"
+            listen: "80"
+            root: "/var/www/martabarea/htdocs"
+            index: index.php index.html index.htm
+            access_log: "/var/www/martabarea/logs/access.log"
+            error_log: "/var/www/martabarea/logs/error.log"
+            filename: "martabarea.es.80.conf"
+            extra_parameters: |
+              location / {
+                return 301 {{ server_name_redirect }}$request_uri;
+              }
+              location ~ \.php$ {
+                fastcgi_split_path_info ^(.+\.php)(/.+)$;
+                fastcgi_pass unix:/var/run/php-fpm.sock;
+                fastcgi_index index.php;
+                fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+                include fastcgi_params;
+              }
+
+      include_role:
+        name: geerlingguy.nginx
+
+    - name: Configure Nginx for HTTPS
+      vars:
+        nginx_vhosts:
+          - server_name: "{{ nginx_server_name }}"
+            listen: "443 ssl"
+            root: "/var/www/martabarea/htdocs"
+            index: index.php index.html index.htm
+            access_log: "/var/www/martabarea/logs/access.log"
+            error_log: "/var/www/martabarea/logs/error.log"
+            filename: "martabarea.es.conf"
+            extra_parameters: |
+              ssl_certificate /etc/letsencrypt/live/{{ nginx_server_name }}/fullchain.pem;
+              ssl_certificate_key /etc/letsencrypt/live/{{ nginx_server_name }}/privkey.pem;
+
+              location / {
+                try_files $uri $uri/ /index.php$is_args$args;
+              }
+              location ~ \.php$ {
+                fastcgi_split_path_info ^(.+\.php)(/.+)$;
+                fastcgi_pass unix:/var/run/php-fpm.sock;
+                fastcgi_index index.php;
+                fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+                include fastcgi_params;
+              }
+
+      include_role:
+        name: geerlingguy.nginx
+
+    - name: Configure PHP for Nginx
+      include_role:
+        name: geerlingguy.php
+      vars:
+        php_enable_php_fpm: true
+        php_fpm_pools:
+          - pool_name: "www"
+            pool_listen: "/var/run/php-fpm.sock"
+
+    - name: Install mysql PHP
+      apt:
+        name: php-mysql
+        state: present
+
+    - name: Configure Wordpress database
+      include_role:
+        name: geerlingguy.mysql
+      vars:
+        mysql_databases:
+          - name: "{{ wp_db_name }}"
+
+    - name: WordPress user and database permissions configuration
+      include_role:
+        name: geerlingguy.mysql
+      vars:
+        mysql_users:
+          - name: "{{ wp_db_user }}"
+            password: "{{ wp_db_password }}"
+            priv: "{{ wp_db_name }}.*:ALL"
+            host: "{{ wp_db_host }}"

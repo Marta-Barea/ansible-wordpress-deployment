@@ -1,0 +1,16 @@
+---
+# Nginx
+nginx_server_name: martabarea.es www.martabarea.es
+server_name_redirect: https://martabarea.es
+
+# Mysql
+wp_db_name: wp_martabarea
+wp_db_user: wp_martabarea
+wp_db_password: "{{ lookup('file', '~/secrets/martabarea.es/mariadb_user_password.txt') }}"
+wp_db_host: localhost
+
+# Certbot
+certbot_email: "{{ lookup('file', '~/secrets/martabarea.es/certbot_email.txt') }}"
+certbot_domains:
+  - martabarea.es
+  - www.martabarea.es
